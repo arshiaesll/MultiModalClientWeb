@@ -2,7 +2,11 @@
   "builds": [
     {
       "src": "package.json",
-      "use": "@vercel/expo"
+      "use": "@vercel/static-build",
+      "config": {
+        "buildCommand": "expo export:web",
+        "outputDirectory": "web-build"
+      }
     }
   ],
   "routes": [
