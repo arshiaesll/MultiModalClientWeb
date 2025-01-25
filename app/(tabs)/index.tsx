@@ -55,15 +55,54 @@ export default function HomePage() {
   });
   const [userCount, setUserCount] = useState(0);
   const countAnimation = useRef(new Animated.Value(1)).current;
+  const [isPermissionLoading, setIsPermissionLoading] = useState(true);
+
+  const requestAudioPermission = async () => {
+    if (Platform.OS === 'web') {
+      try {
+        if (!navigator?.mediaDevices?.getUserMedia) {
+          console.warn('Media devices API not available');
+          setAudioPermission(false);
+          return false;
+        }
+
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+          audio: true,
+          video: false
+        });
+        setAudioPermission(true);
+        stream.getTracks().forEach(track => track.stop());
+        return true;
+      } catch (err) {
+        console.error('Error getting audio permission:', err);
+        setAudioPermission(false);
+        return false;
+      }
+    } else {
+      const audioStatus = await Audio.requestPermissionsAsync();
+      setAudioPermission(audioStatus.status === 'granted');
+      return audioStatus.status === 'granted';
+    }
+  };
 
   useEffect(() => {
     (async () => {
-      if (!permission?.granted) {
-        const status = await requestPermission();
+      setIsPermissionLoading(true);
+      try {
+        if (Platform.OS === 'web') {
+          setIsCameraEnabled(false);
+          await requestAudioPermission();
+        } else {
+          if (!permission?.granted) {
+            await requestPermission();
+          }
+          await requestAudioPermission();
+        }
+      } catch (error) {
+        console.error('Error initializing permissions:', error);
+      } finally {
+        setIsPermissionLoading(false);
       }
-      
-      const audioStatus = await Audio.requestPermissionsAsync();
-      setAudioPermission(audioStatus.status === 'granted');
     })();
   }, [permission, requestPermission]);
 
@@ -164,22 +203,64 @@ export default function HomePage() {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const toggleCamera = (value: boolean) => {
-    if (permission?.granted) {
-      setIsCameraEnabled(value);
+  const toggleCamera = async (value: boolean) => {
+    if (isPermissionLoading) return;
+
+    if (Platform.OS === 'web') {
+      try {
+        if (value) {
+          const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+          stream.getTracks().forEach(track => track.stop());
+          setIsCameraEnabled(value);
+        } else {
+          setIsCameraEnabled(false);
+        }
+      } catch (err) {
+        console.error('Camera permission error:', err);
+        alert('Camera permission not granted');
+        setIsCameraEnabled(false);
+      }
     } else {
-      alert('Camera permission not granted');
+      if (permission?.granted) {
+        setIsCameraEnabled(value);
+      } else {
+        alert('Camera permission not granted');
+      }
     }
   };
 
-  const toggleAudio = (value: boolean) => {
-    if (audioPermission) {
-      setIsAudioEnabled(value);
+  const toggleAudio = async (value: boolean) => {
+    if (isPermissionLoading) return;
+
+    if (Platform.OS === 'web') {
       if (value) {
-        setKey(prev => prev + 1);
+        const granted = await requestAudioPermission();
+        if (granted) {
+          setIsAudioEnabled(true);
+          setKey(prev => prev + 1);
+        } else {
+          alert('Audio permission is required to enable this feature');
+        }
+      } else {
+        setIsAudioEnabled(false);
       }
     } else {
-      alert('Audio permission not granted');
+      if (audioPermission) {
+        setIsAudioEnabled(value);
+        if (value) {
+          setKey(prev => prev + 1);
+        }
+      } else {
+        const granted = await requestAudioPermission();
+        if (granted) {
+          setIsAudioEnabled(value);
+          if (value) {
+            setKey(prev => prev + 1);
+          }
+        } else {
+          alert('Audio permission not granted');
+        }
+      }
     }
   };
 
@@ -433,6 +514,14 @@ export default function HomePage() {
       </View>
     );
   };
+
+  if (isPermissionLoading) {
+    return (
+      <View style={[styles.container, styles.loadingContainer]}>
+        <Text>Initializing...</Text>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -861,5 +950,9 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 12,
     fontWeight: '600',
+  },
+  loadingContainer: {
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });
